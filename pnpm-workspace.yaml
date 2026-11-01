@@ -1,0 +1,5 @@
+allowBuilds:
+  '@azure/msal-node-extensions': true
+  '@microsoft/m365agentstoolkit-cli': true
+  core-js: true
+  keytar: true

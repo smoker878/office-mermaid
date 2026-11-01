@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Office Mermaid · 圖表編輯器</title>
+    <link href="taskpane.css" rel="stylesheet" type="text/css" />
+</head>
+<body>
+    <header class="app-header">
+        <div class="eyebrow">OFFICE MERMAID</div>
+        <h1>讓想法成為圖表</h1>
+        <p>編輯 Mermaid、調整主題，即時檢查 SVG。</p>
+        <p class="host-status" id="host-status" role="status">瀏覽器預覽模式；文件操作需要 Office 宿主。</p>
+    </header>
+    <main class="workspace">
+        <section class="editor-panel" aria-labelledby="editor-title">
+            <h2 id="editor-title">編輯圖表</h2>
+            <div class="field">
+                <label for="mermaid-source">Mermaid 原始碼</label>
+                <p id="mermaid-help" class="hint">輸入後自動預覽。支援 Pele 的 Mermaid 語法，不載入外部圖片或連結。</p>
+                <textarea id="mermaid-source" rows="10" spellcheck="false" autocapitalize="off" aria-describedby="mermaid-help render-error"></textarea>
+            </div>
+            <div class="field">
+                <label for="css-source">CSS／Pele 主題</label>
+                <p id="css-help" class="hint">使用單一 .pele 區塊；顏色限 HEX，字型限本機字型。</p>
+                <textarea id="css-source" rows="11" spellcheck="false" autocapitalize="off" aria-describedby="css-help render-error"></textarea>
+                <details>
+                    <summary>支援哪些主題設定？</summary>
+                    <p>顏色：bg、fg、fg-on-light、fg-on-dark、muted、line、surface、surface-alt、border、accent、critical、series-1 至 series-8。</p>
+                    <p>字型：font、font-mono。字重：title-weight、heading-weight、bold-weight（normal、bold 或 100–900）。圓角：radius（0–64px）。皆須加上 --pele- 前綴。</p>
+                    <p>不支援其他 selector、@import、@media、外部字型、url() 或變數巢狀引用。Mermaid 內的固定樣式可能覆蓋主題。</p>
+                </details>
+            </div>
+            <div class="editor-actions">
+                <button id="refresh-preview" class="primary" type="button">更新預覽</button>
+                <span class="hint">⌘ / Ctrl + Enter</span>
+            </div>
+            <p id="render-error" class="error" role="alert" hidden></p>
+        </section>
+        <section class="preview-panel" aria-labelledby="preview-title">
+            <div class="preview-heading">
+                <h2 id="preview-title">SVG 預覽</h2>
+                <span class="badge">Pele 1.13</span>
+            </div>
+            <p id="render-status" class="render-status" role="status" aria-live="polite">準備預覽…</p>
+            <div id="preview-region" class="preview-region" aria-busy="false">
+                <p id="preview-placeholder" class="hint">輸入 Mermaid，即可在這裡檢查圖表。</p>
+                <img id="svg-preview" alt="Mermaid 圖表的 SVG 預覽" hidden />
+            </div>
+            <p id="preview-dimensions" class="hint"></p>
+            <p class="hint">預覽使用已解析主題的自包含 SVG，不依賴頁面 CSS。字型仍須由檢視裝置提供。</p>
+        </section>
+        <section class="office-panel" aria-labelledby="office-title">
+            <h2 id="office-title">Office 文件</h2>
+            <p id="office-help" class="hint">第一階段僅提供預覽。Word／PowerPoint 插入、載入與更新尚未整合，也尚未通過宿主測試。</p>
+            <div class="office-actions" aria-describedby="office-help">
+                <button type="button" disabled>插入圖表</button>
+                <button type="button" disabled>載入選取圖表</button>
+                <button type="button" disabled>更新圖表</button>
+            </div>
+            <p class="hint">目前輸入只保留於此頁，尚未寫入文件。重新整理或關閉頁面會遺失。</p>
+        </section>
+    </main>
+    <noscript><div class="error">請啟用 JavaScript，才能使用 Mermaid 編輯器與預覽。</div></noscript>
+</body>
+</html>
