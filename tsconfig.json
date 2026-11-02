@@ -23,7 +23,7 @@
       "dom"
     ]
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts", "vite.config.mts"],
   "exclude": [
     "node_modules",
     "dist",

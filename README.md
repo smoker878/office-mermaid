@@ -1,6 +1,28 @@
 # Office Mermaid
 
-沿用 Office Add-in Generator 的 TypeScript／Webpack 專案，以已安裝的 `pele@1.13.0` 渲染 Mermaid。使用 pnpm，不需後端。
+由 Office Add-in Generator 的 TypeScript 專案改用 Vite，以 `pele@1.13.0` 渲染 Mermaid。使用 pnpm，不需後端。Vite 8 需要 Node.js 20.19+ 或 22.12+；建議沿用 Node.js 24 LTS。
+
+## 打包與開發模式
+
+- `pnpm dev:browser`：HTTP 瀏覽器預覽與測試頁，不讀取 Office 開發憑證。
+- `pnpm dev-server`：`https://localhost:3000`，沿用 `office-addin-dev-certs`；首次使用可能要求建立／信任憑證。
+- `pnpm start`／`pnpm stop`：保留原有 Office 側載流程；`start` 使用上述 `dev-server`。
+- `pnpm build:dev`／`pnpm watch`：development 建置，保留 manifest 的 localhost 網址。
+- `pnpm build`：production 建置；輸出的 manifest 沿用原本的 production 網址替換規則，設定集中在 `vite.config.mts` 的 `urlProd`（目前仍為範例網址，正式部署前須另行設定）。不修改原始 `manifest.xml`。
+- 兩種開發模式固定使用 port 3000；已占用時直接失敗，不自動改 port，以免與 manifest 不一致。
+
+根目錄的 `taskpane.html` 與 `commands.html` 是 Vite HTML 入口。`preview.html` 共用 taskpane 範本，瀏覽器網址維持不變以略過 Office.js。圖片仍位於 `/assets/`；建置後的 JS／CSS 使用帶 hash 的檔名。`tests.html` 與 `office-tests.html` 僅在 browser 開發模式提供，不加入一般建置。
+
+Vite 不載入 `.env` 檔；不再使用 Webpack、Babel 或 IE11 polyfill。請使用 pnpm 與 `pnpm-lock.yaml`，不要使用原範本遺留、早已不同步的 `package-lock.json` 安裝依賴。
+
+### Vite 遷移驗證
+
+- `pnpm typecheck`、development／production build，以及本次修改的 TypeScript／Vite 設定 ESLint 通過。
+- Chromium：35／35 渲染測試、29／29 資料／Office／側邊欄模擬測試通過。
+- 驗證兩種建置的 HTML／圖片產出、preview 共用內容、manifest 網址替換、測試入口排除，以及原始 manifest 未變更。
+- Production 靜態預覽：SVG 解碼、修改後重新預覽、錯誤保留舊預覽、瀏覽器模式不載入 Office.js／停用插入、360px 無溢出通過；測試頁回傳 404。
+- Production 主 bundle 約 728 kB（gzip 約 269 kB），仍有大型 chunk 警告；未做渲染器按需載入。
+- 未測試 Office HTTPS 憑證、實際 Word 側載、manifest 驗證與其他瀏覽器；不宣稱已完成 Office 實機驗收。
 
 ## 第一階段：瀏覽器編輯器
 
@@ -50,7 +72,7 @@ pnpm dev:browser
 - 禁止 script、事件處理器、外部圖片、連結、foreignObject、外部 CSS 與 XML 實體。
 - Mermaid 限 50,000 字元、1,000 條邊；CSS 限 10,000 字元；SVG 限 4,000,000 字元與每邊 30,000px。大型圖仍可能短暫阻塞主執行緒。
 - 不內嵌字型；不同裝置字型與字寬可能不同。尚未驗證 Office 對輸出 SVG 的相容性。
-- 目前以現代瀏覽器為目標，使用 Shadow DOM、Canvas、CSS variables；不宣稱支援 IE11，即使原始範本的 browserslist 尚包含 IE11。
+- 目前以現代瀏覽器／Office WebView 為目標，使用 Shadow DOM、Canvas、CSS variables；不支援 IE11 或舊版 Office WebView。實際宿主相容性仍須實測。
 
 ## 驗證
 
@@ -60,7 +82,7 @@ pnpm build:dev
 pnpm build
 ```
 
-啟動 `pnpm dev:browser` 後，開啟 `http://localhost:3000/tests.html`：無新增測試依賴的瀏覽器測試頁，完成後顯示每項結果，`document.body.dataset.testStatus` 為 `passed` 或 `failed`。測試只在 `--env tests` 時加入 bundle，不包含於一般 production build。
+啟動 `pnpm dev:browser` 後，開啟 `http://localhost:3000/tests.html`：無新增測試依賴的瀏覽器測試頁，完成後顯示每項結果，`document.body.dataset.testStatus` 為 `passed` 或 `failed`。測試只在 browser 開發模式提供，不包含於一般 production build。
 
 涵蓋主題解析、非法 CSS、flowchart／sequence／class／state／pie／subgraph、自包含 SVG、字型與色彩、無效／過長輸入、惡意 SVG 與頁面 CSS 隔離。
 
@@ -111,7 +133,7 @@ pnpm --version
 
 將專案資料夾複製到 Windows，例如 `C:\Projects\office-mermaid`：
 
-- 保留 `src`、`assets`、`tests`、`package.json`、`pnpm-lock.yaml`、`pnpm-workspace.yaml`、`manifest.xml` 與其他建置設定。
+- 保留 `src`、`assets`、`tests`、根目錄 HTML 入口、`vite.config.mts`、`package.json`、`pnpm-lock.yaml`、`pnpm-workspace.yaml`、`manifest.xml` 與其他建置設定。
 - 不要複製 `node_modules`、`dist` 或 Mac 的開發憑證；Windows 上重新安裝依賴及建立憑證。
 - 不需要重新執行 Office Add-in Generator，也不要另建專案。
 

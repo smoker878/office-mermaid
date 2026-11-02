@@ -342,7 +342,7 @@ async function run() {
     await rejects(() => adapter.update(target, draft, preview, true));
     assert(host.controls.size === before, "不新增圖片");
   });
-  // Run the real taskpane bundle inside an isolated, mocked Word host.
+  // Run the real taskpane module inside an isolated, mocked Word host.
   const frame = document.createElement("iframe");
   frame.style.width = "360px";
   frame.style.height = "700px";
@@ -351,8 +351,8 @@ async function run() {
   try {
     const markup = await (await window.fetch("taskpane.html")).text();
     const parsed = new DOMParser().parseFromString(markup, "text/html");
-    const bundle = Array.from(parsed.querySelectorAll<HTMLScriptElement>("script[src]")).find(
-      (script) => script.src.includes("taskpane.js")
+    const bundle = parsed.querySelector<HTMLScriptElement>(
+      'script[type="module"][src="/src/taskpane/taskpane.ts"]'
     )!;
     parsed.querySelectorAll("script").forEach((script) => script.remove());
     const pane = frame.contentWindow!;
@@ -405,6 +405,7 @@ async function run() {
       return append(node);
     }) as typeof paneDocument.head.appendChild;
     const entry = paneDocument.createElement("script");
+    entry.type = "module";
     entry.src = bundle.getAttribute("src")!;
     append(entry);
     const element = (id: string) => paneDocument.getElementById(id)!;
