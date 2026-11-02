@@ -1,6 +1,24 @@
 # Office Mermaid
 
-由 Office Add-in Generator 的 TypeScript 專案改用 Vite，以 `pele@1.13.0` 渲染 Mermaid。使用 pnpm，不需後端。Vite 8 需要 Node.js 20.19+ 或 22.12+；建議沿用 Node.js 24 LTS。
+由 Office Add-in Generator 的 TypeScript 專案改用 Vite，側邊欄使用 React 19 + Tailwind CSS 4，以 `pele@1.13.0` 渲染 Mermaid。使用 pnpm，不需後端。Vite 8 需要 Node.js 20.19+ 或 22.12+；建議沿用 Node.js 24 LTS。
+
+## 前端架構
+
+- `src/taskpane/taskpane.tsx`：React 入口，啟用 StrictMode；`App.tsx` 組合頁首、編輯器、預覽及文件操作列。
+- `EditorPanel.tsx`／`PreviewPanel.tsx`：受控表單與 SVG 圖片預覽；保留原有藍灰配色、字級、4px 圓角與窄版排版。
+- `use-editor.ts`：草稿、固定編輯目標、文件操作與選圖掃描；`use-diagram-preview.ts` 保留 400ms debounce、即時手動預覽及錯誤保留舊圖。
+- `use-office-host.ts`：Office.js 初始化及事件訂閱／清除；`preview.html` 不載入 Office.js。
+- `taskpane.css`：Tailwind 入口及 `@theme` 設計 tokens；共用 utility classes 位於 `styles.ts`。主題 CSS 與輸出 SVG 仍由原有渲染器隔離處理。
+- `src/renderer/`、`src/office/` 與 `src/diagram/` 維持既有實作；文件資料格式、manifest 與 Office 側載流程不變。
+
+Tailwind 在建置時產生一般 CSS，不需要 Office 安裝額外套件。Tailwind v4 需要 Chrome／Edge 111+、Safari 16.4+ 或 Firefox 128+；Windows 使用 WebView2，Mac 使用 WKWebView，仍須在目標 Office／作業系統實機驗證。不支援舊版 IE／EdgeHTML WebView。
+
+### React／Tailwind 重構驗證
+
+- `pnpm typecheck`、development／production build，以及 taskpane、相關測試與建置設定的 ESLint 通過；直接執行 ESLint，未執行含 usage data 的 Office CLI wrapper。
+- Chromium：渲染測試 35／35、資料／Office／React 側邊欄模擬測試 35／35 通過。新增 debounce 寫入防護、錯誤恢復、重複插入鎖定、無效圖表載入保留草稿、失效更新目標及延遲事件訂閱清除測試。
+- Production 預覽驗證：360px 無水平溢出、寬版雙欄、快捷鍵更新、CSS／排版欄位錯誤及恢復、舊預覽保留、SVG 解碼與非空白圖、離開提醒、封鎖網路後繼續編輯，以及瀏覽器模式不載入 Office.js／停用文件操作通過；production 不提供測試入口。
+- 未執行實際 Word 側載、HTTPS 憑證、manifest 驗證或其他瀏覽器測試；Office 模擬測試不等同實機驗收。
 
 ## 打包與開發模式
 
@@ -86,7 +104,7 @@ pnpm build
 
 涵蓋主題解析、非法 CSS、flowchart／sequence／class／state／pie／subgraph、自包含 SVG、字型與色彩、無效／過長輸入、惡意 SVG 與頁面 CSS 隔離。
 
-Production build 目前會提示 bundle 大小警告：完整 Pele 入口包含所有圖表類型，taskpane bundle 約 757 KiB（未 gzip）。這不是建置失敗；第一階段尚未進行按需載入最佳化。
+Production build 目前會提示 bundle 大小警告：完整 Pele 入口包含所有圖表類型，加上 React 後 taskpane bundle 約 958 kB（gzip 約 341 kB）。這不是建置失敗；尚未進行按需載入最佳化。
 
 另以編輯頁人工／瀏覽器自動化驗證：
 

@@ -1,4 +1,4 @@
-/* global document, window, DOMParser, atob, TextDecoder, Event, Window, Node, HTMLScriptElement, HTMLTextAreaElement, HTMLButtonElement */
+/* global document, window, DOMParser, atob, TextDecoder, Event, Window, Node, HTMLScriptElement, HTMLTextAreaElement, HTMLButtonElement, HTMLInputElement, HTMLImageElement */
 import {
   createRecord,
   parseRecord,
@@ -352,8 +352,9 @@ async function run() {
     const markup = await (await window.fetch("taskpane.html")).text();
     const parsed = new DOMParser().parseFromString(markup, "text/html");
     const bundle = parsed.querySelector<HTMLScriptElement>(
-      'script[type="module"][src="/src/taskpane/taskpane.ts"]'
+      'script[type="module"][src^="/src/taskpane/taskpane.tsx"]'
     )!;
+    const preamble = parsed.querySelector('script[type="module"]:not([src])')?.textContent || "";
     parsed.querySelectorAll("script").forEach((script) => script.remove());
     const pane = frame.contentWindow!;
     const paneDocument = frame.contentDocument!;
@@ -369,6 +370,9 @@ async function run() {
     const otherDraft = { ...draft, mermaidSource: "flowchart LR\nX[另一張] --> Y[圖表]" };
     const second = await uiAdapter.insert(otherDraft, preview);
     let changed = () => {};
+    let completeRegistration = () => {};
+    const registeredHandlers = new Set<() => void>();
+    let registrations = 0;
     let confirmation = false;
     let confirmations = 0;
     pane.confirm = () => {
@@ -389,9 +393,14 @@ async function run() {
             callback: (result: unknown) => void
           ) => {
             changed = handler;
-            callback({ status: "succeeded" });
+            registrations++;
+            registeredHandlers.add(handler);
+            // Deliberately finish registration only after the iframe unloads.
+            completeRegistration = () => callback({ status: "succeeded" });
           },
-          removeHandlerAsync: () => {},
+          removeHandlerAsync: (_type: string, options: { handler: () => void }) => {
+            registeredHandlers.delete(options.handler);
+          },
         },
       },
     };
@@ -406,10 +415,17 @@ async function run() {
     }) as typeof paneDocument.head.appendChild;
     const entry = paneDocument.createElement("script");
     entry.type = "module";
-    entry.src = bundle.getAttribute("src")!;
+    // The isolated document needs the same React Refresh preamble as Vite's HTML entry.
+    entry.textContent = `${preamble}\nawait import(${JSON.stringify(bundle.getAttribute("src"))});`;
     append(entry);
     const element = (id: string) => paneDocument.getElementById(id)!;
     const source = () => element("mermaid-source") as HTMLTextAreaElement;
+    const input = (field: HTMLTextAreaElement | HTMLInputElement, value: string) => {
+      // Bypass React's value tracker just as real keyboard input does.
+      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+      setter.call(field, value);
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    };
     const waitFor = async (condition: () => boolean) => {
       for (let i = 0; i < 100; i++) {
         if (condition()) return;
@@ -433,6 +449,7 @@ async function run() {
       );
       assert(paneDocument.documentElement.scrollWidth <= 360, "窄版無水平溢出");
       assert(element("office-status").textContent!.includes("編輯選取圖表"), "連線後顯示操作引導");
+      assert(registrations === 1, "StrictMode 不重複訂閱 Office 事件");
     });
     await test("選圖只提示，不取代編輯內容；按編輯才載入", async () => {
       const original = source().value;
@@ -447,12 +464,12 @@ async function run() {
       );
     });
     await test("切換圖表可取消且保留未套用草稿", async () => {
-      source().value = "flowchart LR\nA[尚未套用] --> B";
-      source().dispatchEvent(new Event("input"));
+      input(source(), "flowchart LR\nA[尚未套用] --> B");
       select([second.controlId]);
       await waitFor(() => !element("selection-notice").hidden);
       const before = confirmations;
       element("edit-selected").click();
+      await waitFor(() => confirmations === before + 1);
       assert(
         source().value.includes("尚未套用") && confirmations === before + 1,
         "取消切換保留草稿"
@@ -467,8 +484,7 @@ async function run() {
     });
     await test("確認後切換圖表，空白與多選不清除編輯目標", async () => {
       confirmation = true;
-      source().value = "flowchart LR\nA[放棄這份草稿] --> B";
-      source().dispatchEvent(new Event("input"));
+      input(source(), "flowchart LR\nA[放棄這份草稿] --> B");
       select([second.controlId]);
       await waitFor(() => !element("selection-notice").hidden);
       const before = confirmations;
@@ -524,19 +540,100 @@ async function run() {
     });
     await test("新增保留草稿，CSS 錯誤展開設定並停用文件操作", async () => {
       element("new-diagram").click();
+      await waitFor(() => !element("insert-diagram").hidden);
       assert(
         source().value === otherDraft.mermaidSource && !element("insert-diagram").hidden,
         "新增保留內容"
       );
       const cssInput = element("css-source") as HTMLTextAreaElement;
-      cssInput.value = "invalid css";
-      cssInput.dispatchEvent(new Event("input"));
+      input(cssInput, "invalid css");
       await waitFor(() => !element("render-error").hidden);
       assert(
         element("style-options").hasAttribute("open") &&
           (element("insert-diagram") as HTMLButtonElement).disabled,
         "錯誤可見且阻止寫入"
       );
+    });
+    await test("CSS 錯誤保留舊預覽，修正後恢復有效預覽", async () => {
+      const image = element("svg-preview") as HTMLImageElement;
+      const previous = image.src;
+      assert(!image.hidden && !!previous, "錯誤仍有上次成功圖");
+      input(element("css-source") as HTMLTextAreaElement, draft.cssSource);
+      await waitFor(() => element("render-status").dataset.state === "success");
+      assert(element("render-error").hidden, "錯誤已清除");
+      assert(!(element("insert-diagram") as HTMLButtonElement).disabled, "可再次插入");
+    });
+    await test("debounce 期間不允許寫入，手動預覽使用最新草稿", async () => {
+      input(source(), "flowchart LR\nA[最新草稿] --> B[完成]");
+      await waitFor(() => (element("insert-diagram") as HTMLButtonElement).disabled);
+      assert(element("render-status").dataset.state === "pending", "等待最新預覽");
+      element("refresh-preview").click();
+      await waitFor(() => element("render-status").dataset.state === "success");
+      const svg = decodeURIComponent(
+        (element("svg-preview") as HTMLImageElement).src.split(",")[1]
+      );
+      assert(svg.includes("最新草稿"), "預覽包含當前內容");
+    });
+    let insertedId: number;
+    await test("文件操作中鎖定輸入，重複插入只建立一張圖", async () => {
+      const sync = uiHost.context.sync;
+      const before = uiHost.controls.size;
+      let release = () => {};
+      let started = false;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      uiHost.context.sync = async () => {
+        started = true;
+        await gate;
+        await sync();
+      };
+      try {
+        element("insert-diagram").click();
+        element("insert-diagram").click();
+        await waitFor(() => started);
+        assert(
+          source().disabled && (element("load-diagram") as HTMLButtonElement).disabled,
+          "操作中不能編輯或載入"
+        );
+        release();
+        await waitFor(() => element("office-status").dataset.state === "success");
+        assert(uiHost.controls.size === before + 1, "只插入一張圖");
+        const inserted = [...uiHost.controls.values()].find(
+          (control) => control.id !== first.controlId && control.id !== second.controlId
+        )!;
+        insertedId = inserted.id;
+        uiHost.selected = [insertedId];
+        const saved = await uiAdapter.loadSelection();
+        assert(saved.record.mermaidSource.includes("最新草稿"), "寫入當前草稿而非舊預覽");
+      } finally {
+        release();
+        uiHost.context.sync = sync;
+      }
+    });
+    await test("載入無效 Mermaid 時保留目前草稿與更新目標", async () => {
+      select([]);
+      const invalid = await uiAdapter.insert({ ...draft, mermaidSource: "not a diagram" }, preview);
+      const previous = source().value;
+      select([invalid.controlId]);
+      await waitFor(() => !element("selection-notice").hidden);
+      element("edit-selected").click();
+      await waitFor(() => !element("office-error").hidden);
+      assert(source().value === previous && !element("update-diagram").hidden, "不覆蓋草稿及目標");
+    });
+    await test("更新目標失效後保留草稿，必須重新載入才能再更新", async () => {
+      const previous = source().value;
+      uiHost.controls.delete(insertedId);
+      const before = uiHost.controls.size;
+      element("update-diagram").click();
+      await waitFor(() => element("editing-target").textContent!.includes("請重新載入"));
+      assert((element("update-diagram") as HTMLButtonElement).disabled, "要求重新確認目標");
+      assert(source().value === previous && uiHost.controls.size === before, "草稿保留且不新增圖");
+    });
+    await test("離開後才完成的 Office 事件訂閱仍會解除", async () => {
+      pane.dispatchEvent(new Event("unload"));
+      completeRegistration();
+      assert(registeredHandlers.size === 0, "延遲訂閱正確清除");
     });
   } finally {
     frame.remove();

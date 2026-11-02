@@ -2,6 +2,8 @@ import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath, URL } from "node:url";
 import { defineConfig, type Plugin, type UserConfig } from "vite";
 import devCerts from "office-addin-dev-certs";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const urlDev = "https://localhost:3000/";
@@ -62,7 +64,7 @@ export default defineConfig(async ({ command, mode, isPreview }): Promise<UserCo
     envDir: false,
     publicDir: false,
     appType: "mpa",
-    plugins: [officePages(browser, development)],
+    plugins: [react(), tailwindcss(), officePages(browser, development)],
     server: {
       port: 3000,
       strictPort: true,

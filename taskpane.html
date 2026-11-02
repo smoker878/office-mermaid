@@ -4,94 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Office Mermaid · 圖表編輯器</title>
-    <link href="/src/taskpane/taskpane.css" rel="stylesheet" type="text/css" />
-    <script type="module" src="/src/taskpane/taskpane.ts"></script>
+    <script type="module" src="/src/taskpane/taskpane.tsx"></script>
 </head>
 <body>
-    <header class="app-header">
-        <h1>Office Mermaid</h1>
-        <p class="host-status" id="host-status" role="status">瀏覽器預覽模式；文件操作需要 Office 宿主。</p>
-        <div class="entry-actions">
-            <button id="new-diagram" type="button">＋ 新增圖表</button>
-            <button id="load-diagram" type="button" disabled>編輯選取圖表</button>
-        </div>
-        <p id="editing-target" class="editing-target" aria-live="polite">新增圖表</p>
-        <p id="office-help" class="hint">文件操作需要支援 WordApi 1.4 的 Word；瀏覽器仍可調整排版與預覽。</p>
-        <div id="selection-notice" class="selection-notice" hidden>
-            <p id="selection-message" role="status"></p>
-            <button id="edit-selected" type="button">編輯這張</button>
-        </div>
-        <p id="selection-help" class="hint" hidden></p>
-    </header>
-    <main class="workspace">
-        <section class="editor-panel" aria-labelledby="editor-title">
-            <h2 id="editor-title">圖表內容</h2>
-            <div class="field">
-                <label for="mermaid-source">Mermaid 原始碼</label>
-                <p id="mermaid-help" class="hint">輸入後自動預覽。支援 Pele 的 Mermaid 語法，不載入外部圖片或連結。</p>
-                <textarea id="mermaid-source" rows="10" spellcheck="false" autocapitalize="off" aria-describedby="mermaid-help render-error"></textarea>
-            </div>
-            <details id="style-options" class="advanced-options">
-                <summary>樣式與 CSS</summary>
-            <div class="field">
-                <label for="css-source">CSS／Pele 主題</label>
-                <p id="css-help" class="hint">使用單一 .pele 區塊；顏色限 HEX，字型限本機字型。</p>
-                <textarea id="css-source" rows="11" spellcheck="false" autocapitalize="off" aria-describedby="css-help render-error"></textarea>
-                <details>
-                    <summary>支援哪些主題設定？</summary>
-                    <p>顏色：bg、fg、fg-on-light、fg-on-dark、muted、line、surface、surface-alt、border、accent、critical、series-1 至 series-8。</p>
-                    <p>字型：font、font-mono。字重：title-weight、heading-weight、bold-weight（normal、bold 或 100–900）。圓角：radius（0–64px）。皆須加上 --pele- 前綴。</p>
-                    <p>不支援其他 selector、@import、@media、外部字型、url() 或變數巢狀引用。Mermaid 內的固定樣式可能覆蓋主題。</p>
-                </details>
-            </div>
-            </details>
-            <details id="size-options" class="advanced-options">
-                <summary>排版與圖片大小 <span id="size-summary"></span></summary>
-            <fieldset id="layout-settings" class="size-settings">
-                <legend>圖表排版大小</legend>
-                <label for="layout-width">可用寬度（px）</label>
-                <input id="layout-width" type="number" min="200" max="4000" step="1" value="800" aria-describedby="layout-help render-error" />
-                <input id="layout-width-slider" type="range" min="200" max="4000" step="50" value="800" aria-label="調整排版寬度" />
-                <label class="check-label"><input id="auto-direction" type="checkbox" /> 依寬度自動調整方向</label>
-                <p id="layout-help" class="hint">改變排版，不只是縮放。部分圖表會換行、調整間距；開啟自動方向後，窄版可能轉為直向。實際寬度可能超過設定。</p>
-            </fieldset>
-            <fieldset id="display-settings" class="size-settings">
-                <legend>文件顯示大小</legend>
-                <label for="display-width">圖片寬度（公分）</label>
-                <input id="display-width" type="number" min="1" max="50" step="0.1" value="14" aria-describedby="display-help" />
-                <label class="check-label"><input id="preserve-width" type="checkbox" checked /> 更新時保留文件中的圖片寬度</label>
-                <p id="display-help" class="hint">只縮放圖片，不改排版；高度依比例計算。更新時取消保留，才會使用新的寬度。</p>
-            </fieldset>
-            </details>
-            <div class="editor-actions">
-                <button id="refresh-preview" type="button">重新預覽</button>
-                <span class="hint">⌘ / Ctrl + Enter</span>
-            </div>
-            <p id="render-error" class="error" role="alert" hidden></p>
-        </section>
-        <section class="preview-panel" aria-labelledby="preview-title">
-            <div class="preview-heading">
-                <h2 id="preview-title">SVG 預覽</h2>
-                <span class="badge">Pele 1.13</span>
-            </div>
-            <p id="render-status" class="render-status" role="status" aria-live="polite">準備預覽…</p>
-            <div id="preview-region" class="preview-region" aria-busy="false">
-                <p id="preview-placeholder" class="hint">輸入 Mermaid，即可在這裡檢查圖表。</p>
-                <img id="svg-preview" alt="Mermaid 圖表的 SVG 預覽" hidden />
-            </div>
-            <p id="preview-dimensions" class="hint"></p>
-            <p class="hint">預覽使用已解析主題的自包含 SVG，不依賴頁面 CSS。字型仍須由檢視裝置提供。</p>
-        </section>
-        <section class="office-panel" aria-labelledby="office-title">
-            <h2 id="office-title" class="visually-hidden">文件操作</h2>
-            <div class="office-actions" aria-describedby="office-help">
-                <button id="insert-diagram" class="primary" type="button" disabled>插入文件</button>
-                <button id="update-diagram" class="primary" type="button" hidden disabled>更新這張圖表</button>
-            </div>
-            <p id="office-status" class="render-status" role="status" aria-live="polite">尚未寫入文件。</p>
-            <p id="office-error" class="error" role="alert" hidden></p>
-        </section>
-    </main>
-    <noscript><div class="error">請啟用 JavaScript，才能使用 Mermaid 編輯器與預覽。</div></noscript>
+    <div id="root"></div>
+    <noscript><div role="alert">請啟用 JavaScript，才能使用 Mermaid 編輯器與預覽。</div></noscript>
 </body>
 </html>

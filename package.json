@@ -28,11 +28,17 @@
     "watch": "vite build --mode development --watch"
   },
   "dependencies": {
-    "pele": "^1.13.0"
+    "pele": "^1.13.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
     "@types/office-js": "^1.0.615",
     "@types/office-runtime": "^1.0.40",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
     "eslint-plugin-office-addins": "^4.0.10",
     "office-addin-cli": "^2.0.10",
     "office-addin-debugging": "^6.1.2",
@@ -40,6 +46,7 @@
     "office-addin-lint": "^3.0.10",
     "office-addin-manifest": "^2.1.6",
     "office-addin-prettier-config": "^2.0.5",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vite": "^8.3.5"
   },

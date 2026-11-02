@@ -4,7 +4,7 @@
     "esModuleInterop": true,
     "experimentalDecorators": true,
     "forceConsistentCasingInFileNames": true,
-    "jsx": "react",
+    "jsx": "react-jsx",
     "module": "esnext",
     "moduleResolution": "bundler",
     "noEmitOnError": true,
@@ -23,7 +23,7 @@
       "dom"
     ]
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "vite.config.mts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "vite.config.mts"],
   "exclude": [
     "node_modules",
     "dist",
