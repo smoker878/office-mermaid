@@ -1,4 +1,4 @@
-/* global document, window, DOMParser, atob, TextDecoder */
+/* global document, window, DOMParser, atob, TextDecoder, Event, Window, Node, HTMLScriptElement, HTMLTextAreaElement, HTMLButtonElement */
 import {
   createRecord,
   parseRecord,
@@ -97,8 +97,8 @@ class FakeWord {
   collection(items: unknown[]) {
     return { items, load: () => {} };
   }
-  install() {
-    (window as unknown as { Word: unknown }).Word = {
+  install(hostWindow: Window = window) {
+    (hostWindow as unknown as { Word: unknown }).Word = {
       run: (callback: (context: unknown) => unknown) => callback(this.context),
     };
   }
@@ -342,6 +342,204 @@ async function run() {
     await rejects(() => adapter.update(target, draft, preview, true));
     assert(host.controls.size === before, "不新增圖片");
   });
+  // Run the real taskpane bundle inside an isolated, mocked Word host.
+  const frame = document.createElement("iframe");
+  frame.style.width = "360px";
+  frame.style.height = "700px";
+  frame.title = "Taskpane interaction tests";
+  document.body.appendChild(frame);
+  try {
+    const markup = await (await window.fetch("taskpane.html")).text();
+    const parsed = new DOMParser().parseFromString(markup, "text/html");
+    const bundle = Array.from(parsed.querySelectorAll<HTMLScriptElement>("script[src]")).find(
+      (script) => script.src.includes("taskpane.js")
+    )!;
+    parsed.querySelectorAll("script").forEach((script) => script.remove());
+    const pane = frame.contentWindow!;
+    const paneDocument = frame.contentDocument!;
+    paneDocument.open();
+    paneDocument.write(parsed.documentElement.outerHTML);
+    paneDocument.close();
+    const uiHost = new FakeWord();
+    uiHost.install(pane);
+    const uiAdapter = new WordAdapter();
+    // The adapter used here runs in the parent window; install the same fake there.
+    uiHost.install();
+    const first = await uiAdapter.insert(draft, preview);
+    const otherDraft = { ...draft, mermaidSource: "flowchart LR\nX[另一張] --> Y[圖表]" };
+    const second = await uiAdapter.insert(otherDraft, preview);
+    let changed = () => {};
+    let confirmation = false;
+    let confirmations = 0;
+    pane.confirm = () => {
+      confirmations++;
+      return confirmation;
+    };
+    (pane as unknown as { Office: unknown }).Office = {
+      HostType: { Word: "Word" },
+      AsyncResultStatus: { Failed: "failed" },
+      EventType: { DocumentSelectionChanged: "selection" },
+      onReady: (callback: (info: { host: string }) => void) => callback({ host: "Word" }),
+      context: {
+        requirements: { isSetSupported: () => true },
+        document: {
+          addHandlerAsync: (
+            _type: string,
+            handler: () => void,
+            callback: (result: unknown) => void
+          ) => {
+            changed = handler;
+            callback({ status: "succeeded" });
+          },
+          removeHandlerAsync: () => {},
+        },
+      },
+    };
+    const append = paneDocument.head.appendChild.bind(paneDocument.head);
+    paneDocument.head.appendChild = (<T extends Node>(node: T): T => {
+      const script = node as unknown as HTMLScriptElement;
+      if (script.src?.includes("appsforoffice.microsoft.com")) {
+        window.setTimeout(() => script.dispatchEvent(new Event("load")), 0);
+        return node;
+      }
+      return append(node);
+    }) as typeof paneDocument.head.appendChild;
+    const entry = paneDocument.createElement("script");
+    entry.src = bundle.getAttribute("src")!;
+    append(entry);
+    const element = (id: string) => paneDocument.getElementById(id)!;
+    const source = () => element("mermaid-source") as HTMLTextAreaElement;
+    const waitFor = async (condition: () => boolean) => {
+      for (let i = 0; i < 100; i++) {
+        if (condition()) return;
+        await new Promise((resolve) => window.setTimeout(resolve, 50));
+      }
+      throw new Error("等待側邊欄狀態逾時");
+    };
+    const select = (ids: number[]) => {
+      uiHost.selected = ids;
+      uiHost.emptySelection = ids.length === 0;
+      changed();
+    };
+    await test("側邊欄入口可用、進階設定預設收合、360px 無溢出", async () => {
+      await waitFor(
+        () => !!element("load-diagram") && !(element("load-diagram") as HTMLButtonElement).disabled
+      );
+      assert(
+        !element("style-options").hasAttribute("open") &&
+          !element("size-options").hasAttribute("open"),
+        "預設收合"
+      );
+      assert(paneDocument.documentElement.scrollWidth <= 360, "窄版無水平溢出");
+      assert(element("office-status").textContent!.includes("編輯選取圖表"), "連線後顯示操作引導");
+    });
+    await test("選圖只提示，不取代編輯內容；按編輯才載入", async () => {
+      const original = source().value;
+      select([first.controlId]);
+      await waitFor(() => !element("selection-notice").hidden);
+      assert(source().value === original, "選圖不取代草稿");
+      element("edit-selected").click();
+      await waitFor(() => source().value === draft.mermaidSource);
+      assert(
+        !element("update-diagram").hidden && element("insert-diagram").hidden,
+        "只有更新主動作"
+      );
+    });
+    await test("切換圖表可取消且保留未套用草稿", async () => {
+      source().value = "flowchart LR\nA[尚未套用] --> B";
+      source().dispatchEvent(new Event("input"));
+      select([second.controlId]);
+      await waitFor(() => !element("selection-notice").hidden);
+      const before = confirmations;
+      element("edit-selected").click();
+      assert(
+        source().value.includes("尚未套用") && confirmations === before + 1,
+        "取消切換保留草稿"
+      );
+    });
+    await test("移動游標後更新仍只修改已載入的原圖", async () => {
+      await waitFor(() => !(element("update-diagram") as HTMLButtonElement).disabled);
+      element("update-diagram").click();
+      await waitFor(() => element("office-status").dataset.state === "success");
+      assert(uiHost.controls.get(first.controlId)!.tag !== first.tag, "原圖已更新");
+      assert(uiHost.controls.get(second.controlId)!.tag === second.tag, "另一張未變");
+    });
+    await test("確認後切換圖表，空白與多選不清除編輯目標", async () => {
+      confirmation = true;
+      source().value = "flowchart LR\nA[放棄這份草稿] --> B";
+      source().dispatchEvent(new Event("input"));
+      select([second.controlId]);
+      await waitFor(() => !element("selection-notice").hidden);
+      const before = confirmations;
+      element("edit-selected").click();
+      await waitFor(() => source().value === otherDraft.mermaidSource);
+      assert(confirmations === before + 1, "接受確認後才切換");
+      select([]);
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+      assert(
+        element("selection-notice").hidden && !element("update-diagram").hidden,
+        "空白保持目標"
+      );
+      select([first.controlId, second.controlId]);
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+      assert(
+        element("selection-notice").hidden && source().value === otherDraft.mermaidSource,
+        "多選保持目標"
+      );
+    });
+    await test("提示與實際選取不符時拒絕切換並保留草稿", async () => {
+      select([first.controlId]);
+      await waitFor(() => !element("selection-notice").hidden);
+      uiHost.selected = [second.controlId]; // Simulate a delayed/missing host selection event.
+      element("edit-selected").click();
+      await waitFor(() => !element("office-error").hidden);
+      assert(source().value === otherDraft.mermaidSource, "不載入錯誤圖表");
+      assert(element("office-error").textContent!.includes("已改變"), "說明重新選取");
+    });
+    await test("舊掃描延遲完成不會顯示過時的選圖提示", async () => {
+      const sync = uiHost.context.sync;
+      let release = () => {};
+      let started = false;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      uiHost.context.sync = async () => {
+        started = true;
+        await gate;
+        await sync();
+      };
+      try {
+        select([first.controlId]);
+        await waitFor(() => started);
+        select([]);
+        release();
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        assert(element("selection-notice").hidden, "丟棄過時掃描結果");
+        assert(source().value === otherDraft.mermaidSource, "目前目標與草稿不變");
+      } finally {
+        release();
+        uiHost.context.sync = sync;
+      }
+    });
+    await test("新增保留草稿，CSS 錯誤展開設定並停用文件操作", async () => {
+      element("new-diagram").click();
+      assert(
+        source().value === otherDraft.mermaidSource && !element("insert-diagram").hidden,
+        "新增保留內容"
+      );
+      const cssInput = element("css-source") as HTMLTextAreaElement;
+      cssInput.value = "invalid css";
+      cssInput.dispatchEvent(new Event("input"));
+      await waitFor(() => !element("render-error").hidden);
+      assert(
+        element("style-options").hasAttribute("open") &&
+          (element("insert-diagram") as HTMLButtonElement).disabled,
+        "錯誤可見且阻止寫入"
+      );
+    });
+  } finally {
+    frame.remove();
+  }
   document.getElementById("test-results")!.textContent =
     `${results.join("\n")}\n\n${results.length - failures}/${results.length} passed\n（Office API 模擬測試，不代表 Word 實機驗收）`;
   document.body.dataset.testStatus = failures ? "failed" : "passed";

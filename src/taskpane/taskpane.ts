@@ -1,4 +1,4 @@
-/* global document, window, Office, HTMLTextAreaElement, HTMLImageElement, HTMLInputElement, HTMLButtonElement, setTimeout, clearTimeout */
+/* global document, window, Office, HTMLElement, HTMLTextAreaElement, HTMLImageElement, HTMLInputElement, HTMLButtonElement, ResizeObserver, setTimeout, clearTimeout */
 import { DiagramError, renderDiagram } from "../renderer/renderer";
 import { defaultLayout, validateDraft, type DiagramDraft } from "../diagram/record";
 import { WordAdapter, wordCapability } from "../office/word-adapter";
@@ -41,6 +41,12 @@ function initialize() {
   const officeStatus = document.getElementById("office-status")!;
   const officeError = document.getElementById("office-error")!;
   const editingTarget = document.getElementById("editing-target")!;
+  const selectionNotice = document.getElementById("selection-notice")!;
+  const editSelected = document.getElementById("edit-selected") as HTMLButtonElement;
+  let selected: DiagramTarget | null = null;
+  let selectionVersion = 0;
+  let selectionTimer: ReturnType<typeof setTimeout>;
+  let scanning = false;
   let timer: ReturnType<typeof setTimeout>;
   let hasPreview = false;
   let adapter: OfficeAdapter | null = null;
@@ -72,17 +78,26 @@ function initialize() {
     ]);
   }
   baseline = fingerprint();
+  const actionBar = document.querySelector<HTMLElement>(".office-panel")!;
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty(
+      "--action-bar-height",
+      `${actionBar.getBoundingClientRect().height + 24}px`
+    );
+  }).observe(actionBar);
 
   function buttons() {
     insert.disabled = !adapter || busy || !validPreview || !!target;
     load.disabled = !adapter || busy;
     update.disabled = !adapter || busy || !validPreview || !target || needsReload;
-    newDiagram.hidden = !target;
+    insert.hidden = !!target;
+    update.hidden = !target;
     newDiagram.disabled = busy;
+    editSelected.disabled = busy;
     insert.classList.toggle("primary", !target);
     update.classList.toggle("primary", !!target);
     editingTarget.textContent = target
-      ? `正在編輯圖表 · ${target.record.id.slice(0, 8)}`
+      ? `正在編輯：${target.record.mermaidSource.replace(/\s+/g, " ").slice(0, 64)}`
       : "新增圖表";
     if (needsReload) editingTarget.textContent += " · 請重新載入確認（草稿保留中）";
     for (const element of [
@@ -98,6 +113,46 @@ function initialize() {
     displayWidth.disabled = busy || (!!target && preserveWidth.checked);
     document.getElementById("refresh-preview")!.toggleAttribute("disabled", busy);
     document.querySelector(".office-panel")!.setAttribute("aria-busy", String(busy));
+    document.getElementById("size-summary")!.textContent =
+      `${layoutWidth.value} px · ${autoDirection.checked ? "自動方向" : "保留方向"} · ${target && preserveWidth.checked ? "保留文件寬度" : `${displayWidth.value} 公分`}`;
+    selectionNotice.hidden =
+      !selected ||
+      busy ||
+      (!!target && selected.controlId === target.controlId && selected.tag === target.tag);
+    document.getElementById("selection-message")!.textContent = target
+      ? "已選取另一張 Mermaid 圖表；目前編輯目標不變。"
+      : "已選取 Mermaid 圖表，可載入編輯。";
+    if (!adapter) {
+      officeStatus.textContent = "文件操作尚未連線；仍可編輯與預覽。";
+    } else if (!busy && !validPreview && !needsReload) {
+      officeStatus.textContent = "請先修正輸入錯誤，再插入或更新圖表。";
+    }
+  }
+
+  // Selection only offers an action: it never replaces the draft or editing target.
+  function selectionChanged() {
+    const version = ++selectionVersion;
+    selected = null;
+    selectionNotice.hidden = true;
+    clearTimeout(selectionTimer);
+    selectionTimer = setTimeout(async () => {
+      if (!adapter || busy) return;
+      if (scanning) {
+        selectionChanged();
+        return;
+      }
+      scanning = true;
+      try {
+        const candidate = await adapter.loadSelection();
+        if (version === selectionVersion && !busy) selected = candidate;
+      } catch {
+        // Ordinary pictures, empty selection, and multi-selection are not errors here.
+        // The manual edit action still exposes actionable loading errors.
+      } finally {
+        scanning = false;
+        if (version === selectionVersion) buttons();
+      }
+    }, 200);
   }
 
   function refresh() {
@@ -125,6 +180,8 @@ function initialize() {
             ? layoutWidth
             : mermaid;
       field.setAttribute("aria-invalid", "true");
+      if (field === css) document.getElementById("style-options")!.setAttribute("open", "");
+      if (field === layoutWidth) document.getElementById("size-options")!.setAttribute("open", "");
       errorBox.textContent =
         error instanceof Error ? error.message : "渲染失敗，請修改輸入後重試。";
       errorBox.hidden = false;
@@ -161,6 +218,7 @@ function initialize() {
   displayWidth.addEventListener("input", () => {
     displayWidth.removeAttribute("aria-invalid");
     markUnsaved();
+    buttons();
   });
 
   function markUnsaved() {
@@ -183,15 +241,17 @@ function initialize() {
     }
   });
 
-  async function operate(action: "insert" | "load" | "update") {
+  async function operate(action: "insert" | "load" | "update", expected?: DiagramTarget) {
     if (!adapter || busy) return;
     if (
       action === "load" &&
       fingerprint() !== baseline &&
-      !window.confirm("載入選取圖表會取代目前尚未寫入文件的編輯內容。要繼續載入嗎？")
+      !window.confirm("目前有尚未套用的修改。要放棄修改並編輯選取圖表嗎？取消可繼續目前的編輯。")
     )
       return;
     busy = true;
+    ++selectionVersion;
+    clearTimeout(selectionTimer);
     clearTimeout(timer);
     officeError.hidden = true;
     officeStatus.textContent = {
@@ -205,6 +265,8 @@ function initialize() {
       let result: DiagramTarget;
       if (action === "load") {
         result = await adapter.loadSelection();
+        if (expected && (result.controlId !== expected.controlId || result.tag !== expected.tag))
+          throw new Error("選取的圖表已改變，請重新選取後按「編輯選取圖表」。目前草稿已保留。");
         // Validate the loaded source before replacing any in-progress editor content.
         renderDiagram(result.record.mermaidSource, result.record.cssSource, result.record.layout);
         mermaid.value = result.record.mermaidSource;
@@ -231,7 +293,7 @@ function initialize() {
       refresh();
       officeStatus.textContent =
         action === "load"
-          ? "圖表已載入，可修改後按「更新圖表」。"
+          ? "圖表已載入；修改後按「更新這張圖表」。移動游標不會改變編輯目標。"
           : "圖表與原始碼已寫入目前文件；請在 Word 儲存文件。";
       officeStatus.dataset.state = "success";
     } catch (error) {
@@ -247,35 +309,46 @@ function initialize() {
         !Number.isFinite(displayWidth.valueAsNumber) ||
         displayWidth.valueAsNumber < 1 ||
         displayWidth.valueAsNumber > 50
-      )
+      ) {
         displayWidth.setAttribute("aria-invalid", "true");
+        document.getElementById("size-options")!.setAttribute("open", "");
+      }
     } finally {
       busy = false;
       if (!validPreview) refresh();
       buttons();
       if (action === "load" && officeError.hidden) mermaid.focus();
+      selectionChanged();
     }
   }
   insert.addEventListener("click", () => void operate("insert"));
   load.addEventListener("click", () => void operate("load"));
+  editSelected.addEventListener("click", () => {
+    if (selected) void operate("load", selected);
+  });
   update.addEventListener("click", () => void operate("update"));
   newDiagram.addEventListener("click", () => {
     target = null;
     needsReload = false;
     // Keep the current source as a draft for the next insertion.
-    officeStatus.textContent = "已切換為新增，保留目前內容；請將 Word 游標移到新的插入位置。";
+    officeStatus.textContent =
+      "新增圖表：已保留目前內容，請將 Word 游標放到空白插入位置，再按「插入文件」。";
     officeStatus.dataset.state = "pending";
     officeError.hidden = true;
     buttons();
+    mermaid.focus();
   });
   refresh();
   initializeOffice((connected) => {
     adapter = connected;
+    officeStatus.textContent =
+      "將游標放到空白位置後插入；要修改既有圖表，請選取後按上方「編輯選取圖表」。";
     buttons();
-  });
+    selectionChanged();
+  }, selectionChanged);
 }
 
-function initializeOffice(connect: (adapter: OfficeAdapter) => void) {
+function initializeOffice(connect: (adapter: OfficeAdapter) => void, selectionChanged: () => void) {
   // preview.html never loads Office.js: it also works with the network disabled.
   if (window.location.pathname.endsWith("preview.html")) return;
   const label = document.getElementById("host-status")!;
@@ -293,8 +366,30 @@ function initializeOffice(connect: (adapter: OfficeAdapter) => void) {
           label.textContent = reason || "Word 已連線 · 可插入、載入與更新圖表（尚待實機驗收）。";
           if (!reason) {
             document.getElementById("office-help")!.textContent =
-              "新增：將游標放在插入位置。編輯：選取既有圖表，再按「載入選取圖表」。更新會以已載入的圖表為目標，不跟隨游標。";
+              "新增：將游標放在空白位置。編輯：選取圖表，再按「編輯選取圖表」。更新目標不隨游標改變。";
             connect(new WordAdapter());
+            const fallback = () => {
+              const help = document.getElementById("selection-help")!;
+              help.textContent = "選圖提示無法啟用；請選取圖表後，按上方「編輯選取圖表」。";
+              help.hidden = false;
+            };
+            try {
+              Office.context.document.addHandlerAsync(
+                Office.EventType.DocumentSelectionChanged,
+                selectionChanged,
+                (result) => {
+                  if (result.status === Office.AsyncResultStatus.Failed) fallback();
+                }
+              );
+              window.addEventListener("unload", () => {
+                Office.context.document.removeHandlerAsync(
+                  Office.EventType.DocumentSelectionChanged,
+                  { handler: selectionChanged }
+                );
+              });
+            } catch {
+              fallback();
+            }
           }
         } else {
           label.textContent = info.host

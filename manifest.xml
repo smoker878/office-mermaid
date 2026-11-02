@@ -72,13 +72,13 @@
         <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html"/>
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="GetStarted.Title" DefaultValue="Get started with your sample add-in!"/>
-        <bt:String id="CommandsGroup.Label" DefaultValue="Commands Group"/>
-        <bt:String id="TaskpaneButton.Label" DefaultValue="Show Task Pane"/>
+        <bt:String id="GetStarted.Title" DefaultValue="使用 Mermaid 建立圖表"/>
+        <bt:String id="CommandsGroup.Label" DefaultValue="Mermaid"/>
+        <bt:String id="TaskpaneButton.Label" DefaultValue="Mermaid 圖表"/>
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="Your sample add-in loaded successfully. Go to the HOME tab and click the 'Show Task Pane' button to get started."/>
-        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Click to Show a Taskpane"/>
+        <bt:String id="GetStarted.Description" DefaultValue="到「常用」頁籤按「Mermaid 圖表」開啟編輯器；選取文件中的圖表後，可從側邊欄載入編輯。"/>
+        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="開啟 Mermaid 圖表編輯器，新增或編輯選取的圖表。"/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

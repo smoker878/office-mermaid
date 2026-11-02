@@ -127,7 +127,7 @@ export class WordAdapter implements OfficeAdapter {
         throw new Error(
           candidates.length > 1
             ? "請只選取一張圖表。"
-            : "請選取 Office Mermaid 圖表（或將游標放入圖表容器），再按「載入選取圖表」。"
+            : "請選取 Office Mermaid 圖表（或將游標放入圖表容器），再按「編輯選取圖表」。"
         );
       const control = candidates[0];
       const picture = await inspectPicture(context, control);
