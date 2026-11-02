@@ -104,6 +104,12 @@ module.exports = async (env = {}, options) => {
 
   if (env.tests) {
     config.entry["renderer-tests"] = "./tests/renderer.browser.ts";
+    config.entry["office-tests"] = "./tests/office.browser.ts";
+    config.plugins.push(new HtmlWebpackPlugin({
+      filename: "office-tests.html",
+      chunks: ["polyfill", "office-tests"],
+      templateContent: '<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>Office adapter tests</title></head><body><h1>Office adapter tests (mock)</h1><pre id="test-results">Running…</pre></body></html>',
+    }));
     config.plugins.push(new HtmlWebpackPlugin({
       filename: "tests.html",
       chunks: ["polyfill", "renderer-tests"],

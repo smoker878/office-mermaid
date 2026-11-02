@@ -32,6 +32,14 @@
                     <p>不支援其他 selector、@import、@media、外部字型、url() 或變數巢狀引用。Mermaid 內的固定樣式可能覆蓋主題。</p>
                 </details>
             </div>
+            <fieldset id="layout-settings" class="size-settings">
+                <legend>圖表排版大小</legend>
+                <label for="layout-width">可用寬度（px）</label>
+                <input id="layout-width" type="number" min="200" max="4000" step="1" value="800" aria-describedby="layout-help render-error" />
+                <input id="layout-width-slider" type="range" min="200" max="4000" step="50" value="800" aria-label="調整排版寬度" />
+                <label class="check-label"><input id="auto-direction" type="checkbox" /> 依寬度自動調整方向</label>
+                <p id="layout-help" class="hint">改變排版，不只是縮放。部分圖表會換行、調整間距；開啟自動方向後，窄版可能轉為直向。實際寬度可能超過設定。</p>
+            </fieldset>
             <div class="editor-actions">
                 <button id="refresh-preview" class="primary" type="button">更新預覽</button>
                 <span class="hint">⌘ / Ctrl + Enter</span>
@@ -53,13 +61,24 @@
         </section>
         <section class="office-panel" aria-labelledby="office-title">
             <h2 id="office-title">Office 文件</h2>
-            <p id="office-help" class="hint">第一階段僅提供預覽。Word／PowerPoint 插入、載入與更新尚未整合，也尚未通過宿主測試。</p>
+            <p id="office-help" class="hint">文件操作需要支援 WordApi 1.4 的 Word；瀏覽器仍可調整排版與預覽。PowerPoint 尚未支援。</p>
+            <p id="editing-target" class="editing-target">新增圖表</p>
+            <fieldset id="display-settings" class="size-settings">
+                <legend>文件顯示大小</legend>
+                <label for="display-width">圖片寬度（公分）</label>
+                <input id="display-width" type="number" min="1" max="50" step="0.1" value="14" aria-describedby="display-help" />
+                <label class="check-label"><input id="preserve-width" type="checkbox" checked /> 更新時保留文件中的圖片寬度</label>
+                <p id="display-help" class="hint">只縮放圖片，不改變排版；高度依比例計算。請自行確認寬度適合頁面。初次插入使用上方寬度，更新時可取消保留以改用新寬度。</p>
+            </fieldset>
             <div class="office-actions" aria-describedby="office-help">
-                <button type="button" disabled>插入圖表</button>
-                <button type="button" disabled>載入選取圖表</button>
-                <button type="button" disabled>更新圖表</button>
+                <button id="insert-diagram" class="primary" type="button" disabled>插入圖表</button>
+                <button id="load-diagram" type="button" disabled>載入選取圖表</button>
+                <button id="update-diagram" type="button" disabled>更新圖表</button>
+                <button id="new-diagram" type="button" hidden>改為新增</button>
             </div>
-            <p class="hint">目前輸入只保留於此頁，尚未寫入文件。重新整理或關閉頁面會遺失。</p>
+            <p id="office-status" class="render-status" role="status" aria-live="polite">尚未寫入文件。</p>
+            <p id="office-error" class="error" role="alert" hidden></p>
+            <p class="hint">插入／更新會將原始碼與排版設定寫入文件；仍需在 Word 儲存文件。Word SVG、存檔重開與復原流程尚待實機驗收。</p>
         </section>
     </main>
     <noscript><div class="error">請啟用 JavaScript，才能使用 Mermaid 編輯器與預覽。</div></noscript>

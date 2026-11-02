@@ -1,6 +1,7 @@
 import { PeleError, render } from "pele";
 import { parseTheme } from "./theme";
 import { exportSvg } from "./svg";
+import { validateLayout, type LayoutSettings } from "../diagram/record";
 
 export interface DiagramPreview {
   svg: string;
@@ -11,7 +12,7 @@ export interface DiagramPreview {
 
 export class DiagramError extends Error {
   constructor(
-    public readonly field: "mermaid" | "css",
+    public readonly field: "mermaid" | "css" | "layout",
     message: string
   ) {
     super(message);
@@ -19,7 +20,18 @@ export class DiagramError extends Error {
   }
 }
 
-export function renderDiagram(mermaidSource: string, cssSource: string): DiagramPreview {
+export function renderDiagram(
+  mermaidSource: string,
+  cssSource: string,
+  layout?: LayoutSettings
+): DiagramPreview {
+  if (layout) {
+    try {
+      validateLayout(layout);
+    } catch (error) {
+      throw new DiagramError("layout", error instanceof Error ? error.message : "排版設定無效。");
+    }
+  }
   let theme;
   try {
     theme = parseTheme(cssSource);
@@ -33,7 +45,8 @@ export function renderDiagram(mermaidSource: string, cssSource: string): Diagram
       fontFamily: theme["--pele-font"] || "sans-serif",
       fontFamilyMono: theme["--pele-font-mono"] || "monospace",
       responsive: false,
-      autoDirection: false,
+      autoDirection: layout?.autoDirection ?? false,
+      maxWidth: layout?.maxWidth,
       links: false,
       images: false,
       limit: 50000,
