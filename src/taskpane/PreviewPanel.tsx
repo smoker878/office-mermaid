@@ -33,7 +33,7 @@ export function PreviewPanel({ editor }: { editor: EditorController }) {
       </p>
       <div
         id="preview-region"
-        className="flex min-h-60 items-center justify-center overflow-auto rounded-panel border border-border bg-page p-4"
+        className="flex min-h-60 items-center justify-center overflow-auto rounded-panel border border-border bg-surface p-4"
         aria-busy={pending}
       >
         <p id="preview-placeholder" className={hint} hidden={!!result}>

@@ -3,7 +3,7 @@ import { button, errorMessage, hint, panel, textInput } from "./styles";
 
 export function EditorPanel({ editor }: { editor: EditorController }) {
   const { fields, changeField, busy, preview } = editor;
-  const codeInput = `${textInput} min-h-40 resize-y p-3 font-mono leading-relaxed [tab-size:2]`;
+  const codeInput = `${textInput} min-h-40 resize-y bg-surface! p-3 font-mono leading-relaxed [tab-size:2]`;
   const settings = "mt-6 min-w-0 rounded-panel border border-border p-4";
   const checkbox = "flex min-h-11 items-center gap-2 font-normal";
   return (

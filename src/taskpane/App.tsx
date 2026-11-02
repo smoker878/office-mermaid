@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "react";
 import { EditorPanel } from "./EditorPanel";
 import { PreviewPanel } from "./PreviewPanel";
+import { SwitchDiagramDialog } from "./SwitchDiagramDialog";
 import { useEditor } from "./use-editor";
 import { button, errorMessage, hint, panel, primaryButton, statusMessage } from "./styles";
 
@@ -27,10 +28,14 @@ export function App() {
     !busy &&
     (!target || selected.controlId !== target.controlId || selected.tag !== target.tag);
   const officeHelp = host.adapter
-    ? "新增：將游標放在空白位置。編輯：選取圖表，再按「編輯選取圖表」。更新目標不隨游標改變。"
+    ? "新增：將游標放在空白位置。編輯：選取圖表後載入；編輯期間選到另一張圖會詢問是否切換，更新目標不會自動改變。"
     : "文件操作需要支援 WordApi 1.4 的 Word；瀏覽器仍可調整排版與預覽。";
   return (
-    <div ref={appRef} className="pb-[var(--action-bar-height)] [--action-bar-height:200px]">
+    <div
+      ref={appRef}
+      data-mode={target ? "edit" : "insert"}
+      className={`min-h-screen pb-[var(--action-bar-height)] [--action-bar-height:200px] ${target ? "bg-edit-page" : "bg-page"}`}
+    >
       <header className="mx-auto max-w-300 p-4 pb-0 min-[421px]:p-6 min-[421px]:pb-0">
         <h1 className="mt-2 text-title font-bold leading-tight">Office Mermaid</h1>
         <p id="host-status" className={`${hint} mt-2`} role="status">
@@ -44,26 +49,29 @@ export function App() {
             disabled={busy}
             onClick={editor.newDiagram}
           >
-            ＋ 新增圖表
+            {target ? "＋ 改為插入新圖" : "＋ 新增圖表"}
           </button>
           <button
             id="load-diagram"
             className={button}
             type="button"
             disabled={!host.adapter || busy}
-            onClick={() => void editor.operate("load")}
+            onClick={() => editor.requestLoad(selected || undefined)}
           >
             編輯選取圖表
           </button>
         </div>
         <p
           id="editing-target"
-          className="mb-2 font-semibold wrap-anywhere text-primary"
+          className={`mb-2 rounded-panel border p-3 font-semibold wrap-anywhere ${target ? "border-edit-border bg-edit-tint text-edit-ink" : "border-border bg-tint text-primary"}`}
           aria-live="polite"
         >
-          {target
-            ? `正在編輯：${target.record.mermaidSource.replace(/\s+/g, " ").slice(0, 64)}`
-            : "新增圖表"}
+          <span className="block">{target ? "✎ 編輯既有圖表" : "＋ 插入新圖表"}</span>
+          {target ? (
+            <span className="mt-1 block text-small font-normal">
+              {target.record.mermaidSource.replace(/\s+/g, " ").slice(0, 64)}
+            </span>
+          ) : null}
           {editor.needsReload ? " · 請重新載入確認（草稿保留中）" : ""}
         </p>
         <p id="office-help" className={`${hint} mt-2`}>
@@ -85,10 +93,10 @@ export function App() {
             type="button"
             disabled={busy}
             onClick={() => {
-              if (selected) void editor.operate("load", selected);
+              if (selected) editor.requestLoad(selected);
             }}
           >
-            編輯這張
+            {target ? "切換編輯這張圖" : "編輯這張"}
           </button>
         </div>
         <p id="selection-help" className={`${hint} mt-2`} hidden={!host.selectionHelp}>
@@ -100,13 +108,16 @@ export function App() {
         <PreviewPanel editor={editor} />
         <section
           ref={actionBarRef}
-          className={`${panel} office-panel fixed inset-x-0 bottom-0 z-10 max-h-[45vh] overflow-y-auto shadow-action`}
+          className={`${panel} office-panel fixed inset-x-0 bottom-0 z-10 max-h-[45vh] overflow-y-auto shadow-action ${target ? "border-edit-border bg-edit-tint!" : ""}`}
           aria-labelledby="office-title"
           aria-busy={busy}
         >
           <h2 id="office-title" className="sr-only">
             文件操作
           </h2>
+          <p className={`mb-3 font-semibold ${target ? "text-edit-ink" : "text-primary"}`}>
+            {target ? "更新原圖，不會新增圖片" : "在 Word 游標位置插入新圖表"}
+          </p>
           <div className="flex flex-wrap items-center gap-3" aria-describedby="office-help">
             <button
               id="insert-diagram"
@@ -116,7 +127,7 @@ export function App() {
               disabled={!editor.canWrite}
               onClick={() => void editor.operate("insert")}
             >
-              插入文件
+              {editor.operation === "insert" ? "插入中…" : "插入新圖表"}
             </button>
             <button
               id="update-diagram"
@@ -126,9 +137,22 @@ export function App() {
               disabled={!editor.canWrite || !target}
               onClick={() => void editor.operate("update")}
             >
-              更新這張圖表
+              {editor.operation === "update" ? "更新中…" : "更新原圖"}
             </button>
           </div>
+          <p id="draft-status" className={`${hint} mt-3`} aria-live="polite">
+            {busy
+              ? editor.operation === "load"
+                ? "正在載入圖表…"
+                : "正在寫入文件…"
+              : editor.needsReload
+                ? "草稿已保留，請重新載入確認目標"
+                : editor.dirty
+                  ? "尚未套用變更 · 預覽不會自動修改文件"
+                  : target
+                    ? "已與文件同步 · 請在 Word 儲存文件"
+                    : "保留目前內容，插入成另一張圖"}
+          </p>
           <p
             id="office-status"
             className={`${statusMessage} mb-0`}
@@ -151,6 +175,7 @@ export function App() {
           </p>
         </section>
       </main>
+      <SwitchDiagramDialog editor={editor} />
     </div>
   );
 }

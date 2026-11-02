@@ -13,6 +13,11 @@
   --color-danger: #a12732;
   --color-danger-bg: #fff0f1;
   --color-success: #246044;
+  --color-edit-page: #fff9e8;
+  --color-edit-tint: #fff0bd;
+  --color-edit-border: #dfc46d;
+  --color-edit-ink: #71500b;
+  --color-dialog-backdrop: #24324766;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
   --text-small: 12px;

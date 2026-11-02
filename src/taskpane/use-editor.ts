@@ -19,6 +19,8 @@ export function useEditor() {
   const [target, setTarget] = useState<DiagramTarget | null>(null);
   const [selected, setSelected] = useState<DiagramTarget | null>(null);
   const [busy, setBusy] = useState(false);
+  const [operation, setOperation] = useState<"insert" | "load" | "update" | null>(null);
+  const [switchRequest, setSwitchRequest] = useState<{ target: DiagramTarget } | null>(null);
   const [needsReload, setNeedsReload] = useState(false);
   const [preserveWidth, setPreserveWidth] = useState(true);
   const [styleOpen, setStyleOpen] = useState(false);
@@ -36,6 +38,7 @@ export function useEditor() {
   const selectionTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const scanning = useRef(false);
   const hostRef = useRef<OfficeAdapter | null>(null);
+  const promptedSelection = useRef<string | null>(null);
 
   const selectionChanged = useCallback(function scanSelection() {
     const version = ++selectionVersion.current;
@@ -55,6 +58,10 @@ export function useEditor() {
           setSelected(candidate);
       } catch {
         // Ordinary pictures and empty/multiple selections don't replace the current target.
+        if (active.current && version === selectionVersion.current && !operationLock.current) {
+          promptedSelection.current = null;
+          setSwitchRequest(null);
+        }
       } finally {
         scanning.current = false;
       }
@@ -96,6 +103,24 @@ export function useEditor() {
 
   const dirty = fingerprint(fields) !== baseline;
   useEffect(() => {
+    if (!selected || busy) return;
+    if (!target) return;
+    if (selected.controlId === target.controlId && selected.tag === target.tag) {
+      promptedSelection.current = null;
+      setSwitchRequest((current) =>
+        current &&
+        (current.target.controlId !== selected.controlId || current.target.tag !== selected.tag)
+          ? null
+          : current
+      );
+      return;
+    }
+    const key = `${selected.controlId}:${selected.tag}`;
+    if (promptedSelection.current === key) return;
+    promptedSelection.current = key;
+    setSwitchRequest({ target: selected });
+  }, [selected, target, busy]);
+  useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (operationLock.current || dirty) {
         event.preventDefault();
@@ -128,20 +153,19 @@ export function useEditor() {
     });
   }
 
-  async function operate(action: "insert" | "load" | "update", expected?: DiagramTarget) {
+  async function operate(
+    action: "insert" | "load" | "update",
+    expected?: DiagramTarget,
+    askBeforeLoad = false
+  ) {
     const adapter = host.adapter;
     if (!adapter || operationLock.current || (action === "update" && (!target || needsReload)))
-      return;
-    if (
-      action === "load" &&
-      dirty &&
-      !window.confirm("目前有尚未套用的修改。要放棄修改並編輯選取圖表嗎？取消可繼續目前的編輯。")
-    )
       return;
     // A ref locks immediately, before React commits the disabled button state.
     operationLock.current = true;
     setBusy(true);
-    ++selectionVersion.current;
+    setOperation(action);
+    const loadVersion = ++selectionVersion.current;
     clearTimeout(selectionTimer.current);
     setOfficeError("");
     setOfficeStatus({
@@ -157,8 +181,20 @@ export function useEditor() {
       if (action === "load") {
         result = await adapter.loadSelection();
         if (!active.current) return;
+        if (loadVersion !== selectionVersion.current)
+          throw new Error("載入期間選取已改變，請重新選取圖表。目前草稿已保留。");
         if (expected && (result.controlId !== expected.controlId || result.tag !== expected.tag))
           throw new Error("選取的圖表已改變，請重新選取後按「編輯選取圖表」。目前草稿已保留。");
+        if (
+          askBeforeLoad &&
+          (dirty ||
+            (target && (result.controlId !== target.controlId || result.tag !== target.tag)))
+        ) {
+          promptedSelection.current = `${result.controlId}:${result.tag}`;
+          setSwitchRequest({ target: result });
+          setOfficeStatus({ text: "請確認是否切換圖表；目前編輯內容尚未變更。" });
+          return;
+        }
         // Validate before replacing a single character of the user's in-progress draft.
         renderDiagram(result.record.mermaidSource, result.record.cssSource, result.record.layout);
         nextFields = {
@@ -194,8 +230,10 @@ export function useEditor() {
       setOfficeStatus({
         text:
           action === "load"
-            ? "圖表已載入；修改後按「更新這張圖表」。移動游標不會改變編輯目標。"
-            : "圖表與原始碼已寫入目前文件；請在 Word 儲存文件。",
+            ? "圖表已載入；修改後按「更新原圖」。移動游標不會改變編輯目標。"
+            : action === "insert"
+              ? "已插入新圖表；後續修改會更新這張圖，不會再新增。請在 Word 儲存文件。"
+              : "已更新原圖；圖表與原始碼已寫入文件，請在 Word 儲存文件。",
         state: "success",
       });
     } catch (error) {
@@ -217,19 +255,34 @@ export function useEditor() {
       operationLock.current = false;
       if (active.current) {
         setBusy(false);
+        setOperation(null);
         focusAfterLoad.current = loaded;
         selectionChanged();
       }
     }
   }
 
+  function requestLoad(expected?: DiagramTarget) {
+    if (operationLock.current) return;
+    void operate("load", expected, true);
+  }
+
+  function confirmSwitch() {
+    if (!switchRequest || operationLock.current) return;
+    const expected = switchRequest.target;
+    setSwitchRequest(null);
+    void operate("load", expected);
+  }
+
   function newDiagram() {
     if (operationLock.current) return;
     setTarget(null);
+    setSwitchRequest(null);
+    promptedSelection.current = null;
     setNeedsReload(false);
     setOfficeError("");
     setOfficeStatus({
-      text: "新增圖表：已保留目前內容，請將 Word 游標放到空白插入位置，再按「插入文件」。",
+      text: "已改為插入新圖，保留目前內容；請將 Word 游標放到空白位置，再按「插入新圖表」。",
       state: "pending",
     });
     sourceRef.current?.focus();
@@ -244,6 +297,12 @@ export function useEditor() {
     target,
     selected,
     busy,
+    operation,
+    dirty,
+    switchRequest,
+    requestLoad,
+    confirmSwitch,
+    cancelSwitch: () => setSwitchRequest(null),
     needsReload,
     preserveWidth,
     setPreserveWidth,

@@ -1,4 +1,4 @@
-/* global document, window, DOMParser, atob, TextDecoder, Event, Window, Node, HTMLScriptElement, HTMLTextAreaElement, HTMLButtonElement, HTMLInputElement, HTMLImageElement */
+/* global document, window, DOMParser, atob, TextDecoder, Event, Window, Node, HTMLScriptElement, HTMLTextAreaElement, HTMLButtonElement, HTMLInputElement, HTMLImageElement, HTMLDialogElement */
 import {
   createRecord,
   parseRecord,
@@ -373,12 +373,6 @@ async function run() {
     let completeRegistration = () => {};
     const registeredHandlers = new Set<() => void>();
     let registrations = 0;
-    let confirmation = false;
-    let confirmations = 0;
-    pane.confirm = () => {
-      confirmations++;
-      return confirmation;
-    };
     (pane as unknown as { Office: unknown }).Office = {
       HostType: { Word: "Word" },
       AsyncResultStatus: { Failed: "failed" },
@@ -420,6 +414,7 @@ async function run() {
     append(entry);
     const element = (id: string) => paneDocument.getElementById(id)!;
     const source = () => element("mermaid-source") as HTMLTextAreaElement;
+    const switchDialog = () => element("switch-diagram-dialog") as HTMLDialogElement;
     const input = (field: HTMLTextAreaElement | HTMLInputElement, value: string) => {
       // Bypass React's value tracker just as real keyboard input does.
       const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
@@ -462,18 +457,34 @@ async function run() {
         !element("update-diagram").hidden && element("insert-diagram").hidden,
         "只有更新主動作"
       );
+      assert(paneDocument.querySelector('[data-mode="edit"]'), "載入後顯示編輯模式");
+      assert(element("new-diagram").textContent!.includes("改為插入新圖"), "釐清新增用途");
+      assert(
+        pane.getComputedStyle(paneDocument.querySelector('[data-mode="edit"]')!).backgroundColor ===
+          "rgb(255, 249, 232)",
+        "編輯模式使用淡黃背景"
+      );
+      assert(
+        pane.getComputedStyle(source()).backgroundColor === "rgb(255, 255, 255)",
+        "輸入框維持白色"
+      );
     });
-    await test("切換圖表可取消且保留未套用草稿", async () => {
+    await test("編輯時選到另一張圖立即跳框，取消保留草稿且不重複提示", async () => {
       input(source(), "flowchart LR\nA[尚未套用] --> B");
       select([second.controlId]);
-      await waitFor(() => !element("selection-notice").hidden);
-      const before = confirmations;
-      element("edit-selected").click();
-      await waitFor(() => confirmations === before + 1);
+      await waitFor(() => switchDialog().open);
+      assert(element("switch-diagram-description").textContent!.includes("捨棄"), "說明草稿風險");
+      assert(paneDocument.activeElement === element("cancel-switch"), "預設聚焦安全操作");
+      assert(switchDialog().getBoundingClientRect().width <= 360, "窄版提示框無溢出");
+      element("cancel-switch").click();
+      await waitFor(() => !switchDialog().open);
       assert(
-        source().value.includes("尚未套用") && confirmations === before + 1,
+        source().value.includes("尚未套用") && paneDocument.activeElement === source(),
         "取消切換保留草稿"
       );
+      select([second.controlId]);
+      await new Promise((resolve) => window.setTimeout(resolve, 400));
+      assert(!switchDialog().open, "相同選取事件不重複跳框");
     });
     await test("移動游標後更新仍只修改已載入的原圖", async () => {
       await waitFor(() => !(element("update-diagram") as HTMLButtonElement).disabled);
@@ -482,15 +493,25 @@ async function run() {
       assert(uiHost.controls.get(first.controlId)!.tag !== first.tag, "原圖已更新");
       assert(uiHost.controls.get(second.controlId)!.tag === second.tag, "另一張未變");
     });
-    await test("確認後切換圖表，空白與多選不清除編輯目標", async () => {
-      confirmation = true;
+    await test("未修改時也會跳框，Esc 保留目標；重新選取後可確認切換", async () => {
+      select([]);
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+      select([second.controlId]);
+      await waitFor(() => switchDialog().open);
+      assert(
+        !element("switch-diagram-description").textContent!.includes("捨棄"),
+        "無修改不警告捨棄"
+      );
+      switchDialog().dispatchEvent(new Event("cancel", { cancelable: true }));
+      await waitFor(() => !switchDialog().open);
+      assert(source().value.includes("尚未套用"), "Esc 保留目前目標與內容");
+      select([]);
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
       input(source(), "flowchart LR\nA[放棄這份草稿] --> B");
       select([second.controlId]);
-      await waitFor(() => !element("selection-notice").hidden);
-      const before = confirmations;
-      element("edit-selected").click();
+      await waitFor(() => switchDialog().open);
+      element("confirm-switch").click();
       await waitFor(() => source().value === otherDraft.mermaidSource);
-      assert(confirmations === before + 1, "接受確認後才切換");
       select([]);
       await new Promise((resolve) => window.setTimeout(resolve, 300));
       assert(
@@ -506,9 +527,9 @@ async function run() {
     });
     await test("提示與實際選取不符時拒絕切換並保留草稿", async () => {
       select([first.controlId]);
-      await waitFor(() => !element("selection-notice").hidden);
+      await waitFor(() => switchDialog().open);
       uiHost.selected = [second.controlId]; // Simulate a delayed/missing host selection event.
-      element("edit-selected").click();
+      element("confirm-switch").click();
       await waitFor(() => !element("office-error").hidden);
       assert(source().value === otherDraft.mermaidSource, "不載入錯誤圖表");
       assert(element("office-error").textContent!.includes("已改變"), "說明重新選取");
@@ -538,16 +559,57 @@ async function run() {
         uiHost.context.sync = sync;
       }
     });
+    await test("確認載入期間選取改變時，拒絕切換並保留草稿", async () => {
+      input(source(), "flowchart LR\nA[載入期間保留草稿] --> B");
+      select([first.controlId]);
+      await waitFor(() => switchDialog().open);
+      const sync = uiHost.context.sync;
+      let release = () => {};
+      let started = false;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      uiHost.context.sync = async () => {
+        started = true;
+        await gate;
+        await sync();
+      };
+      try {
+        element("confirm-switch").click();
+        await waitFor(() => started);
+        select([]);
+        release();
+        await waitFor(() => element("office-error").textContent!.includes("載入期間選取已改變"));
+        assert(source().value.includes("載入期間保留草稿"), "非同步載入不覆蓋草稿");
+        assert(!element("update-diagram").hidden, "保留原更新目標");
+      } finally {
+        release();
+        uiHost.context.sync = sync;
+      }
+    });
+    await test("掃描尚未完成時手動載入，確認框仍固定預期目標", async () => {
+      select([first.controlId]);
+      element("load-diagram").click();
+      await waitFor(() => switchDialog().open);
+      uiHost.selected = [second.controlId];
+      element("confirm-switch").click();
+      await waitFor(() => element("office-error").textContent!.includes("選取的圖表已改變"));
+      assert(source().value.includes("載入期間保留草稿"), "沒有預期目標時不會直接丟棄草稿");
+      input(source(), otherDraft.mermaidSource);
+    });
     await test("新增保留草稿，CSS 錯誤展開設定並停用文件操作", async () => {
       element("new-diagram").click();
+      select([]);
       await waitFor(() => !element("insert-diagram").hidden);
       assert(
         source().value === otherDraft.mermaidSource && !element("insert-diagram").hidden,
         "新增保留內容"
       );
+      assert(paneDocument.querySelector('[data-mode="insert"]'), "解除編輯模式");
       const cssInput = element("css-source") as HTMLTextAreaElement;
       input(cssInput, "invalid css");
       await waitFor(() => !element("render-error").hidden);
+      await waitFor(() => element("style-options").hasAttribute("open"));
       assert(
         element("style-options").hasAttribute("open") &&
           (element("insert-diagram") as HTMLButtonElement).disabled,
@@ -596,8 +658,14 @@ async function run() {
           source().disabled && (element("load-diagram") as HTMLButtonElement).disabled,
           "操作中不能編輯或載入"
         );
+        assert(element("insert-diagram").textContent!.includes("插入中"), "按鈕顯示處理進度");
         release();
         await waitFor(() => element("office-status").dataset.state === "success");
+        assert(
+          element("office-status").textContent!.includes("後續修改會更新這張圖"),
+          "說明插入後轉為更新"
+        );
+        assert(paneDocument.querySelector('[data-mode="edit"]'), "插入後轉為編輯模式");
         assert(uiHost.controls.size === before + 1, "只插入一張圖");
         const inserted = [...uiHost.controls.values()].find(
           (control) => control.id !== first.controlId && control.id !== second.controlId
@@ -616,8 +684,8 @@ async function run() {
       const invalid = await uiAdapter.insert({ ...draft, mermaidSource: "not a diagram" }, preview);
       const previous = source().value;
       select([invalid.controlId]);
-      await waitFor(() => !element("selection-notice").hidden);
-      element("edit-selected").click();
+      await waitFor(() => switchDialog().open);
+      element("confirm-switch").click();
       await waitFor(() => !element("office-error").hidden);
       assert(source().value === previous && !element("update-diagram").hidden, "不覆蓋草稿及目標");
     });
